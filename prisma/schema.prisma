@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/models/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id         String      @default(uuid())
+  name       String
+  password   String
+  publicKeys PublicKey[]
+
+  @@id([id])
+  @@unique([name])
+  @@map("user")
+}
+
+model PublicKey {
+  id     String @default(uuid())
+  key    String
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@id([id])
+  @@unique([userId, key])
+  @@map("publicKey")
+}
+
+model Message {
+  id        Int    @default(autoincrement())
+  senderId  String
+  reciverId String
+  content   String
+
+  @@id([id])
+  @@unique([id])
+  @@index([reciverId])
+  @@map("message")
+}
