@@ -1,8 +1,10 @@
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import expressWs, { Application as ExpressApp } from "express-ws";
 import userRouter from "./routes/user.route";
 import dotenv from "dotenv";
-import { WebSocket } from "ws";
+import { HttpError } from "./helpers/HttpError";
+import { MessageController } from "./controllers/MessageController.controller";
+import conversationRouter from "./routes/conversation.route";
 
 dotenv.config({ path: "./.env", quiet: true });
 
@@ -13,31 +15,29 @@ expressWs(app);
 
 app.use(express.json());
 
-app.use("/api", userRouter);
+const routers = [userRouter, conversationRouter];
 
-const SOCKETS: WebSocket[] = [];
+routers.forEach((router) => app.use("/api", router));
 
-app.ws("/send", (ws, req) => {
-  console.log("User connected to /send!");
-  SOCKETS.push(ws);
+app.use(handleHttpError);
 
-  ws.ping(JSON.stringify({ message: "Hello Client" }));
-  console.log(SOCKETS.length);
+function handleHttpError(
+  err: unknown,
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  console.error(err);
+  if (err instanceof HttpError)
+    return res
+      .status(err.httpStatus)
+      .json({ name: err.name, message: err.message });
 
-  ws.on("message", (data) => {
-    console.log(data.toString());
+  return res.status(500).json({ message: "Internal Server Error" });
+}
 
-    SOCKETS.forEach((socket) => {
-      if (socket.readyState === WebSocket.OPEN && socket !== ws)
-        socket.send(data);
-    });
+const messageController = new MessageController();
 
-    console.log(req.query.conversation);
-  });
-  ws.on("close", () => {
-    SOCKETS.filter((socket) => socket !== ws);
-    console.log("user disconnected from /send");
-  });
-});
+app.ws("/chat/:convId", (ws, req) => messageController.send(ws, req));
 
 app.listen(3000, () => console.log("App is listening"));

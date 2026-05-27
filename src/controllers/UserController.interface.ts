@@ -5,4 +5,6 @@ export interface IUserController {
   register: (req: Request, res: Response) => Promise<Response>;
 
   getPublicKey: (req: Request, res: Response) => Promise<Response>;
+
+  getUserId: (req: Request, res: Response) => Promise<Response>;
 }

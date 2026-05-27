@@ -21,4 +21,8 @@ userRouter.post("/user/login", (req: Request, res: Response) =>
   userController.login(req, res),
 );
 
+userRouter.get("/user/:name", (req: Request, res: Response) =>
+  userController.getUserId(req, res),
+);
+
 export default userRouter;

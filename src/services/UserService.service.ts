@@ -7,7 +7,7 @@ import os from "os";
 import { HttpError } from "../helpers/HttpError";
 import { IUserService, PublicKeyDTO, UserDTO } from "./UserService.interface";
 
-type Mapper<T, R> = (data: T) => R;
+export type Mapper<T, R> = (data: T) => R;
 
 const userMapper: Mapper<User, UserDTO> = (user: User): UserDTO => ({
   id: user.id,
@@ -77,5 +77,13 @@ export class UserService implements IUserService {
     ): PublicKeyDTO => ({ key: data.key });
 
     return keyMapper(key);
+  }
+
+  public async getUserId(name: string): Promise<Pick<UserDTO, "id">> {
+    const user = await prisma.user.findUnique({ where: { name: name } });
+
+    if (!user) throw new HttpError("User not found", 404, "Not Found");
+
+    return { id: user.id };
   }
 }

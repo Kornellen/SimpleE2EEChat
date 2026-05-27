@@ -6,4 +6,6 @@ export interface IUserService {
   register: (name: string, password: string) => Promise<UserDTO>;
 
   getPublicKey: (userId: string) => Promise<PublicKeyDTO>;
+
+  getUserId: (name: string) => Promise<Pick<UserDTO, "id">>;
 }
