@@ -6,4 +6,5 @@ const prismaGlobal = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-export const prisma = prismaGlobal.prisma ?? new PrismaClient({ adapter });
+export const prisma =
+  prismaGlobal.prisma ?? new PrismaClient({ adapter, log: ["query"] });

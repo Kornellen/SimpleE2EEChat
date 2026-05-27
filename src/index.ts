@@ -38,6 +38,6 @@ function handleHttpError(
 
 const messageController = new MessageController();
 
-app.ws("/chat/:convId", (ws, req) => messageController.send(ws, req));
+app.ws("/chat/:convId", (ws, req) => messageController.chat(ws, req));
 
 app.listen(3000, () => console.log("App is listening"));

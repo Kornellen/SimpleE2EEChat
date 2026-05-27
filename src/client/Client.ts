@@ -1,16 +1,13 @@
 import fs from "fs";
-import { LoginHandler } from "./common/LoginHandler";
+import { loginHandler, LoginHandler } from "./common/LoginHandler";
 import { APP_DIRECTORY } from "../constants";
 import os from "os";
 import { WebSocket } from "ws";
 import crypto from "crypto";
+import { PromptHandler, promptHandler } from "./common/PromptHandler";
 
-process.stdin.setRawMode(true);
-process.stdin.resume();
-process.stdin.setEncoding("utf8");
-
-process.stdin.on("data", (key) => (key === "\u0003" ? process.exit(0) : null));
-
+// process.stdin.on("data", (key) => (key === "\u0003" ? process.exit(0) : null));
+export type MessageType = { user: { id: string; name: string }; msg: Buffer };
 export class Client {
   private static _privateKey: string = "";
   private static _username: string;
@@ -41,9 +38,9 @@ export class Client {
   }
 
   private loginHandler: LoginHandler;
-
+  private static promptHandler: PromptHandler = promptHandler;
   constructor() {
-    this.loginHandler = new LoginHandler();
+    this.loginHandler = loginHandler;
     this.loginHandler.userLogin();
   }
 
@@ -62,7 +59,6 @@ export class Client {
   public static async connect(username: string) {
     console.log(`\nConnecting to: ${username}...`);
 
-    console.log(`\nFetching id...`);
     const reciverIdResponse = await fetch(
       `http://localhost:3000/api/user/${username}`,
     );
@@ -81,19 +77,15 @@ export class Client {
       `ws://localhost:3000/chat/${conversationData.id}`,
     );
 
-    wsc.on("ping", () => {
-      wsc.pong(JSON.stringify({ message: "Connection established" }));
-    });
-
     wsc.on("open", () => {
-      console.log("Connection is open!\n");
-
+      console.log(`\rConnected to: ${conversationData.id}!\n`);
       process.stdout.write("(You): ");
     });
 
     wsc.on("message", (msg) => {
-      const message: { user: string; msg: Buffer } = JSON.parse(msg.toString());
-      console.log((message.msg as any).data as Buffer);
+      const message: MessageType = JSON.parse(msg.toString());
+
+      console.log(message.msg);
 
       const decryptedMsg = crypto
         .privateDecrypt(
@@ -101,19 +93,23 @@ export class Client {
             key: this.privateKey,
             padding: crypto.constants.RSA_PKCS1_PADDING,
           },
-          Buffer.from(message.msg),
+          Buffer.from(message.msg.toString(), "base64"),
         )
         .toString("utf8");
 
-      process.stdout.write(`${message.user}: ${decryptedMsg}\n`);
+      process.stdout.write(`\r${message.user ?? "(You)"}: ${decryptedMsg}\n`);
+      process.stdout.write("(You): ");
     });
 
-    let currentMessage = "";
-    process.stdout.write("(You): ");
-    process.stdin.on("data", async (key) => {
-      if (key === "\u0003") process.exit();
+    wsc.on("error", (err) => console.error(err));
+    while (true) {
+      const msg = await this.promptHandler.prompt("(You): ");
+      if (msg === "/exit") {
+        wsc.close();
+        break;
+      }
 
-      if (key === "\r") {
+      try {
         const data = await fetch(
           `http://localhost:3000/api/publickey/${userData.id}`,
         );
@@ -125,28 +121,18 @@ export class Client {
             key,
             padding: crypto.constants.RSA_PKCS1_PADDING,
           },
-          Buffer.from(currentMessage, "utf8"),
+          Buffer.from(msg, "utf8"),
         );
-        wsc.send(JSON.stringify({ user: this.username, msg: encryptedMsg }));
-        process.stdout.write("\r\n");
-        process.stdout.write("(You): ");
-        currentMessage = "";
+        const payload: MessageType = {
+          user: { id: this.userId, name: this.username },
+          msg: encryptedMsg,
+        };
+
+        wsc.send(JSON.stringify(payload));
+      } catch (error) {
+        console.error(error);
       }
-
-      if (key === "\u007f") {
-        currentMessage = currentMessage.slice(0, -1);
-        process.stdout.write("\r\x1b[K");
-        process.stdout.write(currentMessage);
-        return;
-      }
-
-      currentMessage += key;
-      process.stdout.write(key);
-    });
-
-    wsc.on("error", (err) => console.error(err));
-
-    return;
+    }
   }
 }
 
