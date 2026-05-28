@@ -3,9 +3,7 @@ import { Command } from "./Command";
 export class Select extends Command {
   public child_commends: Command[] | null;
   public name: string;
-  protected addChild(command: Command): void {
-    this.child_commends?.push(command);
-  }
+  protected addChild(command: Command): void {}
   constructor(name: string) {
     super();
     this.name = name;

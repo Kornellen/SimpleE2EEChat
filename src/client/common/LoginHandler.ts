@@ -1,22 +1,29 @@
 import { Client } from "../Client";
-import { commandHandler, CommandHandler } from "../commands/CommandHandler";
+import { commandHandler, CommandHandler } from "./CommandHandler";
+import { PrivateKeyHandler, privateKeyHandler } from "./PrivateKeyHandler";
+import { promptHandler } from "./PromptHandler";
+import { UserState, userState } from "./UserState";
 
 type UserData = { name: string; password: string };
 export class LoginHandler {
   private userData: UserData;
   private tryCount: number = 1;
 
-  public get Username() {
+  public get Username(): string {
     return this.userData.name;
   }
 
   private commandHandler: CommandHandler;
+  private userStateHandler: UserState;
+  private privateKeyHandler: PrivateKeyHandler;
   constructor() {
     this.userData = {
       name: "",
       password: "",
     };
     this.commandHandler = commandHandler;
+    this.userStateHandler = userState;
+    this.privateKeyHandler = privateKeyHandler;
   }
   public async userLogin() {
     this.userData = {
@@ -34,82 +41,41 @@ export class LoginHandler {
 
       return;
     }
-
-    this.userData.name = await this.prompt("Name: ");
-    this.userData.password = await this.prompt("Password: ", true);
-
+    if (await this.userStateHandler.load()) {
+      return this.loginUser(true);
+    }
+    this.userData.name = await promptHandler.prompt("Name: ");
+    this.userData.password = await promptHandler.prompt("Password: ", true);
     await this.loginUser();
   }
 
-  public async prompt(
-    question: string,
-    isPassword: boolean = false,
-  ): Promise<string> {
-    return new Promise((resolve) => {
-      let line = "";
-      process.stdin.setRawMode(true);
-      process.stdin.setEncoding("utf8");
+  private async loginUser(fromSession: boolean = false) {
+    if (!fromSession) {
+      const headers = new Headers();
+      headers.append("Content-Type", "application/json");
 
-      process.stdout.write(question);
+      const response = await fetch("http://localhost:3000/api/user/login", {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(this.userData),
+      });
 
-      const handler = (key: string) => {
-        if (key === "\u0003") process.exit(0);
+      if (!response.ok) {
+        this.tryCount += 1;
+        const { message } = await response.json();
+        console.error(`${message}`);
 
-        if (key === "\u007f" && line.length > 0) {
-          line = line.slice(0, -1);
-          process.stdout.write("\b \b");
-          return;
-        }
+        this.userLogin();
+      } else {
+        const result = await response.json();
 
-        if (key === "\r" || key === "\n") {
-          var data = line;
-          cleanup();
-          return resolve(data.trim());
-        }
-
-        if (key.length === 1 && key >= " " && key <= "~") {
-          line += key;
-          process.stdout.write(isPassword ? "*" : key);
-        }
-      };
-
-      const cleanup = () => {
-        process.stdout.write("\r\n");
-        process.stdin.off("data", handler);
-        process.stdin.setRawMode(false);
-        line = "";
-      };
-
-      process.stdin.on("data", handler);
-    });
-  }
-
-  private async loginUser() {
-    const headers = new Headers();
-    headers.append("Content-Type", "application/json");
-
-    const response = await fetch("http://localhost:3000/api/user/login", {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify(this.userData),
-    });
-
-    if (!response.ok) {
-      this.tryCount += 1;
-      const { message } = await response.json();
-      console.error(`${message}`);
-
-      this.userLogin();
-    } else {
-      const result = await response.json();
-      Client.username = result.name;
-      Client.userId = result.id;
-
-      Client.loadPrivateKey();
-
-      console.log(`Logged as ${result.name} (${result.id})`);
-      this.commandHandler.handleCommand();
+        await userState.save({ userId: result.id, username: result.name });
+      }
     }
+
+    this.privateKeyHandler.loadPrivateKey();
+    console.log(`Logged as ${userState.username} (${userState.userId})`);
+    this.commandHandler.handleCommand();
   }
 }
 export const loginHandler = new LoginHandler();

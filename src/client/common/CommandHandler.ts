@@ -1,22 +1,14 @@
-import { promptHandler, PromptHandler } from "../common/PromptHandler";
-import { Command } from "./Command";
-import { Help, Select, SelectChat, SwitchUser } from "./Commands";
-import { ShowCommands } from "./ShowCommands";
-import { ShowKey } from "./ShowKey";
+import { promptHandler, PromptHandler } from "./PromptHandler";
+import { Command } from "../commands/Command";
+import { COMMANDS, ShowCommands } from "../commands/Commands";
 export class CommandHandler {
   private command: string;
   private commands: Command[];
   private promptHandler: PromptHandler;
   constructor() {
     this.command = "";
-    this.commands = [
-      new Help("help"),
-      new Select("select"),
-      new SelectChat("select chat"),
-      new SwitchUser("switch user"),
-      new ShowKey("show key"),
-      new ShowCommands("list commands"),
-    ];
+
+    this.commands = COMMANDS;
 
     (this.commands[5] as ShowCommands).availableCommands = this.commands;
 

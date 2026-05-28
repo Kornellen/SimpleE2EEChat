@@ -19,5 +19,6 @@ export class ShowCommands extends Command {
     this._availableCommands.forEach((command) =>
       process.stdout.write("\n> " + command.name + "\n"),
     );
+    process.stdout.write("\n");
   }
 }

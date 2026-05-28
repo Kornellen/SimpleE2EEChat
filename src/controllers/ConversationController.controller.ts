@@ -20,8 +20,6 @@ export class ConversationController implements IConversationController {
   ): Promise<Response> {
     const { userId, reciverId } = req.query;
 
-    // console.log(userId + " " + reciverId);
-
     if (!userId || !reciverId)
       throw new HttpError("Bad request", 400, "Bad Request");
 
