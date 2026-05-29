@@ -15,8 +15,13 @@ const userMapper: Mapper<User, UserDTO> = (user: User): UserDTO => ({
 });
 
 export class UserService implements IUserService {
-  constructor() {
-    console.log("Hello From UserService");
+  private static _instance: UserService;
+  private constructor() {}
+
+  public static getInstance() {
+    if (!this._instance) this._instance = new UserService();
+
+    return this._instance;
   }
 
   public async login(name: string, inputPassword: string): Promise<UserDTO> {
@@ -47,7 +52,7 @@ export class UserService implements IUserService {
         },
       });
 
-      const appDir = `${os.homedir()}/.simpleE2EEChat`;
+      const appDir = `${os.homedir()}/.simpleE2EEChat/${name}`;
       if (!fs.existsSync(appDir)) fs.mkdirSync(appDir, { recursive: true });
       fs.writeFileSync(`${appDir}/priv_key_${name}.pem`, privateKey, "utf8");
 
@@ -55,7 +60,7 @@ export class UserService implements IUserService {
         data: {
           name: name,
           password: hashedPsswd,
-          publicKeys: { create: { key: publicKey } },
+          publicKey: { create: { key: publicKey } },
         },
       });
 
@@ -85,5 +90,15 @@ export class UserService implements IUserService {
     if (!user) throw new HttpError("User not found", 404, "Not Found");
 
     return { id: user.id };
+  }
+
+  public async isUserExisting(value: string): Promise<boolean> {
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ name: value }, { id: value }] },
+    });
+
+    if (!user) return false;
+
+    return true;
   }
 }

@@ -5,12 +5,16 @@ import {
   ConversationController,
   IConversationController,
 } from "../controllers/ConversationController.controller";
+import { IUserService } from "../services/UserService.interface";
+import { UserService } from "../services/UserService.service";
 
 const conversationRouter = Router();
 
 const conversationService: IConversationService = new ConversationService();
+const userService: IUserService = UserService.getInstance();
+
 const conversationController: IConversationController =
-  new ConversationController(conversationService);
+  new ConversationController(conversationService, userService);
 
 conversationRouter.get("/conversation/", (req: Request, res: Response) =>
   conversationController.findConversationByMembers(req, res),

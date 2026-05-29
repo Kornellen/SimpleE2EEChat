@@ -8,4 +8,6 @@ export interface IUserService {
   getPublicKey: (userId: string) => Promise<PublicKeyDTO>;
 
   getUserId: (name: string) => Promise<Pick<UserDTO, "id">>;
+
+  isUserExisting: (value: string) => Promise<boolean>;
 }

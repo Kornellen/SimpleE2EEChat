@@ -6,7 +6,7 @@ import { IUserService } from "../services/UserService.interface";
 
 const userRouter = Router();
 
-const userService: IUserService = new UserService();
+const userService: IUserService = UserService.getInstance();
 const userController: IUserController = new UserController(userService);
 
 userRouter.get("/publickey/:userId", (req: Request, res: Response) =>
