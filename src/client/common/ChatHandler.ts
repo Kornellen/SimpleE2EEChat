@@ -1,5 +1,5 @@
 import { WebSocket, RawData } from "ws";
-import crypto from "crypto";
+
 import { PromptHandler, promptHandler } from "./PromptHandler";
 import { UserState, userState } from "./UserState";
 import { commandHandler } from "./CommandHandler";
@@ -7,117 +7,104 @@ import fs from "fs";
 import path from "path";
 import { DecrptionHandler } from "./DecryptionHandler";
 import { EncryptionHandler } from "./EncryptionHandler";
-import { SelectChat } from "../commands/SelectChat";
+import { keyRing, KeyRing } from "./KeyRing";
+import { FileHandler } from "./FileHandler";
 export type MessageType = {
   type: "init_chat" | "usr_msg" | "usr_ext" | "usr_ent";
   user: { id: string; name: string };
   msg: string;
 };
 
-type ConversationData = { converId: string; key: string };
+export type ConversationData = { converId: string; key: string };
 
 export class ChatHandler {
   private userState: UserState;
   private promptHandler: PromptHandler;
 
-  private reciverPublicKey: string;
+  private keyRing: KeyRing;
 
-  private converAESKey: Buffer;
   private converId: string;
 
-  private USER_CONVERSATION_FILE: string;
-
   constructor() {
-    this.reciverPublicKey = "";
     this.userState = userState;
     this.promptHandler = promptHandler;
-    this.converAESKey = Buffer.from("");
-    this.USER_CONVERSATION_FILE = "";
+    this.keyRing = keyRing;
+
     this.converId = "";
   }
-
-  private generateConverAESKey(): Buffer {
-    return crypto.randomBytes(32);
+  private createWebSocket(): WebSocket {
+    return new WebSocket(`ws://localhost:3000/chat/${this.converId}`);
   }
-
   public async connect(username: string) {
-    console.log(`\nConnecting to: ${username}...`);
+    try {
+      console.log(`\nConnecting to: ${username}...`);
 
-    this.USER_CONVERSATION_FILE = path.join(
-      this.userState.SESSION_FILE_PATH,
-      "conversations.json",
-    );
+      const reciverId = await this.getReciverId(username);
 
-    const reciverId = await this.getReciverId(username);
+      if (reciverId === undefined) throw new Error("User not found");
 
-    // TODO: Write Exception for Conversation not found error
-    const conversationId = await this.getConversationId(reciverId);
+      const conversationId = await this.getConversationId(reciverId);
 
-    this.converId = conversationId;
-    const wsc = new WebSocket(`ws://localhost:3000/chat/${conversationId}`);
+      this.converId = conversationId;
 
-    await this.getReciverPublicKey(reciverId);
+      const wsc = this.createWebSocket();
 
-    const websocketHandle = () => {
-      console.log(`\rConnected to: ${conversationId}\n`);
+      await this.keyRing.loadReciverPublicKey(reciverId);
 
-      const conversations = this.loadConversationsFile();
+      wsc.on("open", () => this.webSocketHandle(wsc));
 
-      const existingConv = conversations.find(
-        (conv) => conv.converId === conversationId,
-      );
+      wsc.on("message", (msg) => this.reciveMessageHandle(msg));
 
-      if (!existingConv) {
-        this.converAESKey = this.generateConverAESKey();
-        this.sendConverAESKey(wsc, reciverId);
-        this.saveConverKey(this.converAESKey);
-      } else {
-        this.converAESKey = Buffer.from(existingConv.key, "base64");
-      }
+      wsc.on("error", (err) => console.error(err));
 
-      process.stdout.write("(You): ");
-    };
+      this.sendMessageHandle(wsc);
+    } catch (error) {
+      if (error instanceof Error) console.error(`[SYSTEM]: ${error.message}`);
+      else console.error(error);
 
-    wsc.on("open", websocketHandle.bind(this));
-
-    wsc.on("message", (msg) => this.reciveMessageHandle(msg));
-
-    wsc.on("error", (err) => console.error(err));
-
-    this.sendMessageHandle(wsc);
+      commandHandler.handleCommand();
+    }
   }
 
-  private async getReciverId(reciverName: string): Promise<string> {
+  private webSocketHandle(wsc: WebSocket) {
+    console.log(`\rConnected to: ${this.converId}\n`);
+
+    const conversation = this.findConversation();
+
+    if (!conversation) {
+      KeyRing.conversationKey = KeyRing.generateConverAESKey();
+      this.keyRing.sendConverAESKey(wsc);
+
+      this.keyRing.saveConverKey(this.converId);
+    } else {
+      KeyRing.conversationKey = Buffer.from(conversation.key, "base64");
+    }
+    process.stdout.write("(You): ");
+  }
+
+  private async getReciverId(reciverName: string): Promise<string | undefined> {
     try {
       const reciverIdResponse = await fetch(
         `http://localhost:3000/api/user/${reciverName}`,
       );
 
       const userData = await reciverIdResponse.json();
-
+      if (!userData) return undefined;
       return userData.id;
     } catch (error) {
       throw error;
     }
   }
 
-  private async sendConverAESKey(ws: WebSocket, reciverId: string) {
-    const payload: MessageType = {
-      type: "init_chat",
-      user: { id: this.userState.userId, name: this.userState.username },
-      msg: "",
-    };
+  private findConversation(): ConversationData | undefined {
+    const conversations = FileHandler.loadConversationsFile();
 
-    const encryptedKey = EncryptionHandler.encryptWithUserPublicKey(
-      this.converAESKey,
-      this.reciverPublicKey,
+    const existingConv = conversations.find(
+      (conv) => conv.converId === this.converId,
     );
 
-    payload.msg = encryptedKey.toString("base64");
-
-    ws.send(JSON.stringify(payload));
+    return existingConv;
   }
-
   private async getConversationId(reciverId: string): Promise<string> {
     try {
       const conversationIdResponse = await fetch(
@@ -126,7 +113,7 @@ export class ChatHandler {
 
       const conversationData = await conversationIdResponse.json();
 
-      if (conversationData.id === "undefined")
+      if (conversationData.id === undefined)
         throw new Error("Conversation not found!");
 
       return conversationData.id;
@@ -136,87 +123,14 @@ export class ChatHandler {
     }
   }
 
-  private ensureConversationFileExists(): void {
-    if (!fs.existsSync(this.USER_CONVERSATION_FILE)) {
-      fs.writeFileSync(
-        this.USER_CONVERSATION_FILE,
-        JSON.stringify([], null, 2),
-      );
-    }
-  }
-
-  private loadConversationsFile(): ConversationData[] {
-    this.ensureConversationFileExists();
-
-    try {
-      const fileContent = fs.readFileSync(this.USER_CONVERSATION_FILE, "utf-8");
-      const conversations: ConversationData[] = JSON.parse(fileContent);
-
-      return Array.isArray(conversations) ? conversations : [];
-    } catch (err) {
-      return [];
-    }
-  }
-
-  private saveConversationsFile(conversations: ConversationData[]): void {
-    try {
-      this.ensureConversationFileExists();
-
-      fs.writeFileSync(
-        this.USER_CONVERSATION_FILE,
-        JSON.stringify(conversations, null, 2),
-      );
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  private saveConverKey(chatKey: Buffer): void {
-    let conversations = this.loadConversationsFile();
-
-    const existingIndex = conversations.findIndex(
-      (conv) => conv.converId === this.converId,
-    );
-
-    const entry: ConversationData = {
-      converId: this.converId,
-      key: chatKey.toString("base64"),
-    };
-
-    if (existingIndex !== -1) {
-      conversations[existingIndex] = entry;
-    } else {
-      conversations.push(entry);
-    }
-
-    this.saveConversationsFile(conversations);
-  }
-
-  private async reciveMessageHandle(msg: RawData) {
-    {
-      const message: MessageType = JSON.parse(msg.toString());
-
-      if (this.chatEvent(message)) return;
-
-      const decryptedMsg = DecrptionHandler.decryptMessage(
-        message.msg,
-        this.converAESKey,
-      );
-      process.stdout.write(
-        `\r${message.user.name ?? "(You)"}: ${decryptedMsg}\n`,
-      );
-      process.stdout.write("(You): ");
-    }
-  }
-
   private chatEvent(message: MessageType) {
     switch (message.type) {
       case "init_chat":
-        this.converAESKey = DecrptionHandler.decryptWithUserPrivateKey(
+        KeyRing.conversationKey = DecrptionHandler.decryptWithUserPrivateKey(
           message.msg.toString(),
         );
 
-        this.saveConverKey(this.converAESKey);
+        this.keyRing.saveConverKey(this.converId);
         return true;
       case "usr_ext":
       case "usr_ent":
@@ -225,6 +139,20 @@ export class ChatHandler {
         return true;
       case "usr_msg":
         return false;
+    }
+  }
+
+  private async reciveMessageHandle(msg: RawData) {
+    {
+      const message: MessageType = JSON.parse(msg.toString());
+
+      if (this.chatEvent(message)) return;
+
+      const decryptedMsg = DecrptionHandler.decryptMessage(message.msg);
+      process.stdout.write(
+        `\r${message.user.name ?? "(You)"}: ${decryptedMsg}\n`,
+      );
+      process.stdout.write("(You): ");
     }
   }
 
@@ -238,10 +166,7 @@ export class ChatHandler {
       }
 
       try {
-        const encryptedMsg = EncryptionHandler.encryptMessage(
-          msg,
-          this.converAESKey,
-        );
+        const encryptedMsg = EncryptionHandler.encryptMessage(msg);
 
         const payload: MessageType = {
           type: "usr_msg",
@@ -254,20 +179,6 @@ export class ChatHandler {
         console.error(error);
       }
     }
-  }
-
-  private async getReciverPublicKey(reciverId: string): Promise<string> {
-    if (!this.reciverPublicKey) {
-      const data = await fetch(
-        `http://localhost:3000/api/publickey/${reciverId}`,
-      );
-
-      const { key } = await data.json();
-
-      this.reciverPublicKey = key;
-    }
-
-    return this.reciverPublicKey;
   }
 }
 
